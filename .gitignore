@@ -1,0 +1,10 @@
+.env
+.claude/
+*.pyc
+__pycache__/
+.venv/
+*.log
+freeswitch/log/
+freeswitch/db/
+freeswitch/recordings/
+.DS_Store

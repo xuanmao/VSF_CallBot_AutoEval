@@ -1,0 +1,24 @@
+<include>
+  <!-- Bare-minimum vars.xml for CSCallBot. The full default vars.xml that
+       ships with FreeSWITCH defines hundreds of knobs; we only override the
+       handful we actually use so that the rest of the stock config keeps
+       working. -->
+
+  <X-PRE-PROCESS cmd="set" data="domain=$${local_ip_v4}"/>
+  <X-PRE-PROCESS cmd="set" data="domain_name=$${domain}"/>
+  <X-PRE-PROCESS cmd="set" data="hold_music=local_stream://moh"/>
+
+  <!-- Password used by extension 1000. Sourced from the SIP_EXT_1000_PASSWORD
+       env var injected by docker-compose. -->
+  <X-PRE-PROCESS cmd="set" data="default_password=$${SIP_EXT_1000_PASSWORD}"/>
+
+  <!-- External IP for SIP / SDP. "auto-nat" works when the softphone is on
+       the same machine; otherwise set FS_EXTERNAL_IP to the host's LAN IP. -->
+  <X-PRE-PROCESS cmd="set" data="external_rtp_ip=$${FS_EXTERNAL_IP}"/>
+  <X-PRE-PROCESS cmd="set" data="external_sip_ip=$${FS_EXTERNAL_IP}"/>
+
+  <!-- The bridge service. With network_mode: host on FreeSWITCH (see
+       docker-compose.yml), 127.0.0.1 reaches the bridge container's mapped
+       port. -->
+  <X-PRE-PROCESS cmd="set" data="bridge_ws=ws://127.0.0.1:8080"/>
+</include>

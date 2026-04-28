@@ -1,0 +1,17 @@
+<include>
+  <!-- Softphone account. Username 1000, password from $${default_password}
+       (set via SIP_EXT_1000_PASSWORD in .env). -->
+  <user id="1000">
+    <params>
+      <param name="password" value="$${default_password}"/>
+      <param name="vm-password" value="1000"/>
+    </params>
+    <variables>
+      <variable name="toll_allow" value="domestic,international,local"/>
+      <variable name="accountcode" value="1000"/>
+      <variable name="user_context" value="default"/>
+      <variable name="effective_caller_id_name" value="Softphone"/>
+      <variable name="effective_caller_id_number" value="1000"/>
+    </variables>
+  </user>
+</include>

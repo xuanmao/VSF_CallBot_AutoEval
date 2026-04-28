@@ -1,0 +1,56 @@
+<include>
+  <context name="default">
+
+    <!-- Echo test: dial "echo" or "9196" first to confirm two-way audio
+         before involving the bridge. -->
+    <extension name="echo">
+      <condition field="destination_number" expression="^(echo|9979)$">
+        <action application="answer"/>
+        <action application="echo"/>
+      </condition>
+    </extension>
+
+    <!-- Music on hold sanity check -->
+    <extension name="hold_music">
+      <condition field="destination_number" expression="^9664$">
+        <action application="answer"/>
+        <action application="playback" data="$${hold_music}"/>
+      </condition>
+    </extension>
+
+    <!-- The voice bot. Dial 9196 from the softphone. -->
+    <extension name="gemini_live_bot">
+      <condition field="destination_number" expression="^9196$">
+        <action application="answer"/>
+        <action application="sleep" data="200"/>
+        <action application="export" data="STREAM_PLAYBACK=1"/>
+        <action application="log"
+                data="INFO === CSCallBot: starting Gemini Live for ${caller_id_number} uuid=${uuid} ==="/>
+
+        <!-- Open a WebSocket to the bridge for this call. mod_audio_stream
+             will:
+               - send 16-bit PCM mono @ 16 kHz binary frames upstream
+               - accept JSON {"type":"streamAudio", ...} downstream and
+                 play the embedded base64 PCM back on this leg.
+
+             Args: <uuid> start <ws-url> <mono|mixed|stereo> <sample-rate> -->
+        <action application="set"
+                data="stream_res=${uuid_audio_stream ${uuid} start $${bridge_ws}/live/${uuid}?caller_id=${caller_id_number} mono 16000}"/>
+
+        <!-- Park the leg so the channel stays up while the bridge talks
+             to Gemini. Hangup tears the WebSocket down automatically. -->
+        <action application="park"/>
+      </condition>
+    </extension>
+
+    <!-- Fallback so misdials don't 404 silently -->
+    <extension name="catchall">
+      <condition field="destination_number" expression="^.*$">
+        <action application="answer"/>
+        <action application="playback" data="ivr/ivr-that_was_an_invalid_entry.wav"/>
+        <action application="hangup"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>

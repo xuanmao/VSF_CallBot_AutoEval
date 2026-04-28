@@ -1,0 +1,45 @@
+<profile name="internal">
+  <aliases/>
+  <gateways/>
+  <domains>
+    <domain name="all" alias="true" parse="true"/>
+  </domains>
+
+  <settings>
+    <param name="user-agent-string" value="CSCallBot-FreeSWITCH"/>
+    <param name="debug" value="0"/>
+    <param name="sip-trace" value="no"/>
+    <param name="rfc2833-pt" value="101"/>
+
+    <!-- Listen on all interfaces, default SIP port -->
+    <param name="sip-port" value="5060"/>
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+
+    <!-- Advertised IPs (set FS_EXTERNAL_IP in .env) -->
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+
+    <!-- Auth on REGISTER, anonymous INVITE allowed only from registered users -->
+    <param name="auth-calls" value="true"/>
+    <param name="apply-inbound-acl" value="domains"/>
+
+    <param name="context" value="default"/>
+    <param name="dialplan" value="XML"/>
+    <param name="dtmf-duration" value="2000"/>
+    <param name="dtmf-type" value="rfc2833"/>
+
+    <!-- Codec preference: G.711 only (8 kHz). FreeSWITCH internally
+         resamples to 16 kHz / 24 kHz L16 for mod_audio_stream. -->
+    <param name="inbound-codec-prefs" value="PCMU,PCMA"/>
+    <param name="outbound-codec-prefs" value="PCMU,PCMA"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
+
+    <!-- NAT helpers — important when softphone and FS aren't on the same host -->
+    <param name="aggressive-nat-detection" value="true"/>
+    <param name="apply-nat-acl" value="nat.auto"/>
+
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+  </settings>
+</profile>
