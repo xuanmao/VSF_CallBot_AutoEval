@@ -9,7 +9,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY main.py .
+COPY main.py agent_system_prompt.txt ./
 
 EXPOSE 8080
 CMD ["python", "main.py"]

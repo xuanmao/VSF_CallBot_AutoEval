@@ -47,13 +47,8 @@ SHARED_AUDIO_DIR = Path(os.getenv("SHARED_AUDIO_DIR", "/shared-audio"))
 # Flush audio to file and broadcast every N bytes (≈500 ms at 8 kHz 16-bit).
 FLUSH_BYTES = FS_PLAYBACK_RATE * 2 * 500 // 1000  # 8000 bytes
 
-SYSTEM_INSTRUCTION = (
-    "You are CSCallBot, a friendly customer-service voice assistant reached "
-    "over the phone. Keep replies short and conversational — one or two "
-    "sentences at a time — because the caller hears you, not reads you. "
-    "If you don't know something, say so plainly. Greet the caller as soon "
-    "as the call connects."
-)
+_PROMPT_FILE = Path(__file__).parent / "agent_system_prompt.txt"
+SYSTEM_INSTRUCTION = _PROMPT_FILE.read_text(encoding="utf-8").strip()
 
 # --- app ------------------------------------------------------------------
 
