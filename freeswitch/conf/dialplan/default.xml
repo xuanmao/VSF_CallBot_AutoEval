@@ -37,8 +37,9 @@
         <action application="set"
                 data="stream_res=${uuid_audio_stream ${uuid} start $${bridge_ws}/live/${uuid}?caller_id=${caller_id_number} mono 16000}"/>
 
-        <!-- Park the leg so the channel stays up while the bridge talks
-             to Gemini. Hangup tears the WebSocket down automatically. -->
+        <!-- Park the channel while the bridge talks to Gemini.
+             uuid_broadcast works correctly on parked channels without
+             creating a sub-execution context that closes mod_audio_stream. -->
         <action application="park"/>
       </condition>
     </extension>

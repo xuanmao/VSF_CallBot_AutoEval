@@ -7,8 +7,12 @@ services:
       - PORT=${BRIDGE_PORT:-8080}
     ports:
       - "${BRIDGE_PORT:-8080}:8080"
+    volumes:
+      - shared-audio:/shared-audio
     networks:
       - cscallbot
+    extra_hosts:
+      - "freeswitch-host:host-gateway"
     restart: unless-stopped
 
   freeswitch:
@@ -17,20 +21,14 @@ services:
     env_file: .env
     depends_on:
       - bridge
-    # Host networking is the simplest way to keep RTP working without
-    # publishing the entire 16384-16484/udp range. Comment `network_mode`
-    # and uncomment `ports` + `networks` if your platform doesn't support
-    # host networking (e.g. Docker Desktop on macOS / Windows).
     network_mode: host
-    # ports:
-    #   - "5060:5060/udp"
-    #   - "5060:5060/tcp"
-    #   - "16384-16484:16384-16484/udp"
-    # networks:
-    #   - cscallbot
     volumes:
-      - ./freeswitch/conf:/etc/freeswitch:ro
+      - ./freeswitch/conf:/etc/freeswitch
+      - shared-audio:/shared-audio
     restart: unless-stopped
+
+volumes:
+  shared-audio:
 
 networks:
   cscallbot:

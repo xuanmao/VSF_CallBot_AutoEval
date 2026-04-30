@@ -16,9 +16,9 @@
     <param name="sip-ip" value="$${local_ip_v4}"/>
     <param name="rtp-ip" value="$${local_ip_v4}"/>
 
-    <!-- Advertised IPs (set FS_EXTERNAL_IP in .env) -->
-    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
-    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <!-- Advertised IPs — use local LAN IP so softphone on same network can reach us -->
+    <param name="ext-rtp-ip" value="$${local_ip_v4}"/>
+    <param name="ext-sip-ip" value="$${local_ip_v4}"/>
 
     <!-- Auth on REGISTER, anonymous INVITE allowed only from registered users -->
     <param name="auth-calls" value="true"/>
