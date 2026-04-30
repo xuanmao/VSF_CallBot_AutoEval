@@ -22,7 +22,6 @@
     <extension name="gemini_live_bot">
       <condition field="destination_number" expression="^9196$">
         <action application="answer"/>
-        <action application="sleep" data="200"/>
         <action application="export" data="STREAM_PLAYBACK=1"/>
         <action application="log"
                 data="INFO === CSCallBot: starting Gemini Live for ${caller_id_number} uuid=${uuid} ==="/>
@@ -37,10 +36,12 @@
         <action application="set"
                 data="stream_res=${uuid_audio_stream ${uuid} start $${bridge_ws}/live/${uuid}?caller_id=${caller_id_number} mono 16000}"/>
 
-        <!-- Park the channel while the bridge talks to Gemini.
-             uuid_broadcast works correctly on parked channels without
-             creating a sub-execution context that closes mod_audio_stream. -->
-        <action application="park"/>
+        <!-- endless_playback with silence_stream actively pushes write frames
+             through switch_core_session_write_frame() every 20 ms, which
+             triggers the SMBF_WRITE_REPLACE media bug callback so Gemini
+             audio gets injected directly into the RTP stream.
+             park() and sleep() bypass the write frame path — do NOT use them. -->
+        <action application="endless_playback" data="silence_stream://250,1400"/>
       </condition>
     </extension>
 

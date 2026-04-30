@@ -7,12 +7,8 @@ services:
       - PORT=${BRIDGE_PORT:-8080}
     ports:
       - "${BRIDGE_PORT:-8080}:8080"
-    volumes:
-      - shared-audio:/shared-audio
     networks:
       - cscallbot
-    extra_hosts:
-      - "freeswitch-host:host-gateway"
     restart: unless-stopped
 
   freeswitch:
@@ -24,16 +20,7 @@ services:
     network_mode: host
     volumes:
       - ./freeswitch/conf:/etc/freeswitch
-      - shared-audio:/shared-audio
     restart: unless-stopped
-
-volumes:
-  shared-audio:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=256m
 
 networks:
   cscallbot:

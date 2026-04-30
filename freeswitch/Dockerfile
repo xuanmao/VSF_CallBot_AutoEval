@@ -62,12 +62,171 @@ RUN mkdir -p /usr/lib/pkgconfig /tmp/fs-mod-out && \
     printf 'prefix=/usr\nexec_prefix=${prefix}\nlibdir=${prefix}/lib\nincludedir=/tmp/freeswitch-src/src/include\n\nName: freeswitch\nDescription: FreeSWITCH\nVersion: 1.10.12\nLibs: -L${libdir} -lfreeswitch\nCflags: -I${includedir} -I/tmp/freeswitch-src/libs/libteletone/src\nmodulesdir=/tmp/fs-mod-out\n' \
     > /usr/lib/pkgconfig/freeswitch.pc
 
-# Build mod_audio_stream; cmake reads modulesdir from the .pc above
+# Build mod_audio_stream with write-frame injection patch
 ARG MOD_AUDIO_STREAM_REF=main
 RUN git clone --depth 1 --recurse-submodules --shallow-submodules \
         --branch ${MOD_AUDIO_STREAM_REF} \
-        https://github.com/amigniter/mod_audio_stream.git /tmp/mod_audio_stream \
-    && cd /tmp/mod_audio_stream \
+        https://github.com/amigniter/mod_audio_stream.git /tmp/mod_audio_stream
+
+# Apply patch: add direct write-frame injection so the bridge can stream
+# Gemini audio back to the caller via streamAudio WebSocket messages instead
+# of the file+ESL workaround.
+RUN python3 - <<'PATCH'
+import sys
+
+# ── audio_streamer_glue.cpp ──────────────────────────────────────────────────
+with open('/tmp/mod_audio_stream/audio_streamer_glue.cpp') as f:
+    src = f.read()
+
+# 1. Add playback buffer members as PUBLIC after m_stateMutex so stream_write_frame
+#    (a free function) can access them directly.
+assert 'std::mutex m_stateMutex;' in src, "anchor not found: m_stateMutex"
+src = src.replace(
+    'std::mutex m_stateMutex;',
+    'std::mutex m_stateMutex;\n'
+    'public:\n'
+    '    // Write-frame injection buffer — filled by processMessage, drained by stream_write_frame\n'
+    '    std::vector<uint8_t> m_playback_buf;\n'
+    '    std::mutex           m_playback_mutex;\n'
+    'private:'
+)
+
+# 2a. Before the streamAudio type-check, intercept killAudio and clear the buffer.
+#     Without this, killAudio is silently discarded (line 301: return out).
+kill_anchor = 'if (!jsonType || std::strcmp(jsonType, "streamAudio") != 0) {'
+assert kill_anchor in src, "anchor not found: streamAudio type check"
+src = src.replace(
+    kill_anchor,
+    '// Write-frame injection: flush buffer on killAudio so the bot stops mid-speech\n'
+    '    if (jsonType && std::strcmp(jsonType, "killAudio") == 0) {\n'
+    '        std::lock_guard<std::mutex> _lk(m_playback_mutex);\n'
+    '        m_playback_buf.clear();\n'
+    '        return out;\n'
+    '    }\n'
+    + kill_anchor
+)
+
+# 2b. After base64_decode in processMessage(), push bytes into the buffer.
+#    processMessage is a member function so it can access private/public members.
+assert 'decoded = base64_decode(jsonAudio->valuestring)' in src, "anchor not found: base64_decode"
+src = src.replace(
+    'decoded = base64_decode(jsonAudio->valuestring)',
+    'decoded = base64_decode(jsonAudio->valuestring);\n'
+    '        {\n'
+    '            std::lock_guard<std::mutex> _lk(m_playback_mutex);\n'
+    '            m_playback_buf.insert(m_playback_buf.end(),\n'
+    '                reinterpret_cast<const uint8_t*>(decoded.data()),\n'
+    '                reinterpret_cast<const uint8_t*>(decoded.data()) + decoded.size());\n'
+    '        }\n'
+    '        // Audio is in the write-frame buffer — skip disk write entirely.\n'
+    '        return out;'
+)
+
+# 3. Add stream_write_frame() before stream_session_cleanup().
+#    Uses the same static_cast pattern as stream_frame() to unwrap pAudioStreamer.
+write_fn = '''
+switch_bool_t stream_write_frame(switch_media_bug_t *bug)
+{
+    static std::atomic<int> s_call_count{0};
+    int call_no = ++s_call_count;
+
+    auto *tech_pvt = (private_t *) switch_core_media_bug_get_user_data(bug);
+    if (!tech_pvt || !tech_pvt->pAudioStreamer) return SWITCH_TRUE;
+
+    auto sp_ptr = static_cast<std::shared_ptr<AudioStreamer>*>(tech_pvt->pAudioStreamer);
+    if (!sp_ptr || !(*sp_ptr)) return SWITCH_TRUE;
+    auto streamer = *sp_ptr;
+
+    switch_frame_t *frame = switch_core_media_bug_get_write_replace_frame(bug);
+
+    // Log first 5 calls and every 500th to see if we are being invoked and
+    // what the frame dimensions look like.
+    if (call_no <= 5 || call_no % 500 == 0) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+            "stream_write_frame #%d: frame=%p datalen=%u samples=%u buf=%zu\\n",
+            call_no,
+            (void*)frame,
+            frame ? frame->datalen : 0,
+            frame ? frame->samples : 0,
+            streamer->m_playback_buf.size());
+    }
+
+    if (!frame || !frame->data) return SWITCH_TRUE;
+
+    uint32_t needed = frame->datalen > 0 ? frame->datalen : frame->samples * 2;
+    if (needed == 0) return SWITCH_TRUE;
+
+    std::lock_guard<std::mutex> _lk(streamer->m_playback_mutex);
+    if (streamer->m_playback_buf.size() < needed) return SWITCH_TRUE;
+
+    memcpy(frame->data, streamer->m_playback_buf.data(), needed);
+    streamer->m_playback_buf.erase(
+        streamer->m_playback_buf.begin(),
+        streamer->m_playback_buf.begin() + needed);
+    frame->datalen = needed;
+    frame->samples = needed / 2;
+    switch_core_media_bug_set_write_replace_frame(bug, frame);
+
+    if (call_no <= 5) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
+            "stream_write_frame #%d: INJECTED %u bytes\\n", call_no, needed);
+    }
+    return SWITCH_TRUE;
+}
+'''
+assert 'switch_status_t stream_session_cleanup(' in src, "anchor not found: stream_session_cleanup"
+src = src.replace(
+    'switch_status_t stream_session_cleanup(',
+    write_fn + 'switch_status_t stream_session_cleanup('
+)
+
+with open('/tmp/mod_audio_stream/audio_streamer_glue.cpp', 'w') as f:
+    f.write(src)
+print("audio_streamer_glue.cpp patched OK")
+
+# ── audio_streamer_glue.h ────────────────────────────────────────────────────
+with open('/tmp/mod_audio_stream/audio_streamer_glue.h') as f:
+    src = f.read()
+
+assert 'switch_bool_t stream_frame(switch_media_bug_t *bug);' in src, "anchor not found: stream_frame"
+src = src.replace(
+    'switch_bool_t stream_frame(switch_media_bug_t *bug);',
+    'switch_bool_t stream_frame(switch_media_bug_t *bug);\n'
+    'switch_bool_t stream_write_frame(switch_media_bug_t *bug);'
+)
+
+with open('/tmp/mod_audio_stream/audio_streamer_glue.h', 'w') as f:
+    f.write(src)
+print("audio_streamer_glue.h patched OK")
+
+# ── mod_audio_stream.c ───────────────────────────────────────────────────────
+with open('/tmp/mod_audio_stream/mod_audio_stream.c') as f:
+    src = f.read()
+
+# Add WRITE_REPLACE case before the existing WRITE/default fallthrough
+assert 'case SWITCH_ABC_TYPE_WRITE:\n        default:\n            break;' in src, "anchor not found: WRITE case"
+src = src.replace(
+    'case SWITCH_ABC_TYPE_WRITE:\n        default:\n            break;',
+    'case SWITCH_ABC_TYPE_WRITE_REPLACE:\n'
+    '            return stream_write_frame(bug);\n\n'
+    '        case SWITCH_ABC_TYPE_WRITE:\n'
+    '        default:\n'
+    '            break;'
+)
+
+# Enable WRITE_REPLACE on the media bug
+assert 'switch_media_bug_flag_t flags = SMBF_READ_STREAM;' in src, "anchor not found: SMBF_READ_STREAM"
+src = src.replace(
+    'switch_media_bug_flag_t flags = SMBF_READ_STREAM;',
+    'switch_media_bug_flag_t flags = SMBF_READ_STREAM | SMBF_WRITE_REPLACE;'
+)
+
+with open('/tmp/mod_audio_stream/mod_audio_stream.c', 'w') as f:
+    f.write(src)
+print("mod_audio_stream.c patched OK")
+PATCH
+
+RUN cd /tmp/mod_audio_stream \
     && cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
     && cmake --build build --target install -j"$(nproc)"
 
